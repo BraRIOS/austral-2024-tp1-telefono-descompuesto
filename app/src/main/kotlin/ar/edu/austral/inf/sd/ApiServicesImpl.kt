@@ -1,20 +1,29 @@
 package ar.edu.austral.inf.sd
 
+import ar.edu.austral.inf.sd.server.api.BadRequestException
 import ar.edu.austral.inf.sd.server.api.PlayApiService
 import ar.edu.austral.inf.sd.server.api.RegisterNodeApiService
 import ar.edu.austral.inf.sd.server.api.RelayApiService
-import ar.edu.austral.inf.sd.server.api.BadRequestException
 import ar.edu.austral.inf.sd.server.model.PlayResponse
 import ar.edu.austral.inf.sd.server.model.RegisterResponse
 import ar.edu.austral.inf.sd.server.model.Signature
 import ar.edu.austral.inf.sd.server.model.Signatures
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.fasterxml.jackson.module.kotlin.readValue
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
+import okhttp3.HttpUrl
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import org.springframework.web.context.request.RequestContextHolder
 import org.springframework.web.context.request.ServletRequestAttributes
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.*
 import java.util.concurrent.CountDownLatch
@@ -27,6 +36,8 @@ class ApiServicesImpl: RegisterNodeApiService, RelayApiService, PlayApiService {
     private val myServerName: String = ""
     @Value("\${server.port:8080}")
     private val myServerPort: Int = 0
+    @Value("\${server.host:localhost}")
+    private val myServerHost: String = ""
     private val nodes: MutableList<RegisterResponse> = mutableListOf()
     private var nextNode: RegisterResponse? = null
     private val messageDigest = MessageDigest.getInstance("SHA-512")
@@ -38,7 +49,7 @@ class ApiServicesImpl: RegisterNodeApiService, RelayApiService, PlayApiService {
     private var currentMessageResponse = MutableStateFlow<PlayResponse?>(null)
 
     override fun registerNode(host: String?, port: Int?, name: String?): RegisterResponse {
-
+        println("registerNode($host, $port, $name)")
         val nextNode = if (nodes.isEmpty()) {
             // es el primer nodo
             val me = RegisterResponse(currentRequest.serverName, myServerPort, "", "")
@@ -58,9 +69,13 @@ class ApiServicesImpl: RegisterNodeApiService, RelayApiService, PlayApiService {
         val receivedHash = doHash(message.encodeToByteArray(), salt)
         val receivedContentType = currentRequest.getPart("message")?.contentType ?: "nada"
         val receivedLength = message.length
+        val updatedSignatures = signatures.copy(
+            items = signatures.items + clientSign(message)
+        )
+
         if (nextNode != null) {
-            // Soy un relé. busco el siguiente y lo mando
-            // @ToDo do some work here
+            // Reenviar el mensaje al siguiente nodo en la cadena con el contentType adecuado
+            sendRelayMessage(message, receivedContentType, nextNode!!, updatedSignatures)
         } else {
             // me llego algo, no lo tengo que pasar
             if (currentMessageWaiting.value == null) throw BadRequestException("no waiting message")
@@ -98,19 +113,82 @@ class ApiServicesImpl: RegisterNodeApiService, RelayApiService, PlayApiService {
     }
 
     internal fun registerToServer(registerHost: String, registerPort: Int) {
-        // @ToDo acá tienen que trabajar ustedes
-        val registerNodeResponse: RegisterResponse = RegisterResponse("", -1, "", "")
-        println("nextNode = ${registerNodeResponse}")
-        nextNode = with(registerNodeResponse) { RegisterResponse(nextHost, nextPort, uuid, hash) }
+        val client = OkHttpClient()
+
+        // Construir la URL con los parámetros de consulta (host, port, name)
+        val url = HttpUrl.Builder()
+            .scheme("http")
+            .host(registerHost)
+            .port(registerPort)
+            .addPathSegment("register-node")
+            .addQueryParameter("host", myServerHost)
+            .addQueryParameter("port", myServerPort.toString())
+            .addQueryParameter("name", myServerName)
+            .build()
+
+        val request = Request.Builder()
+            .url(url)
+            .post(ByteArray(0).toRequestBody(null, 0, 0))
+            .build()
+
+        println("Enviando request: $request")
+        try {
+            // Enviar la solicitud y procesar la respuesta
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw IOException("Unexpected code $response")
+
+                val responseBody = response.body?.string()
+                if (responseBody != null) {
+                    val registerResponse: RegisterResponse = jacksonObjectMapper().readValue(responseBody)
+                    println("nextNode = $registerResponse")
+                    nextNode = RegisterResponse(registerResponse.nextHost, registerResponse.nextPort, registerResponse.uuid, registerResponse.hash)
+                }
+            }
+        } catch (e: Exception) {
+            println("Error al registrar el nodo: ${e.message}")
+        }
     }
+
 
     private fun sendRelayMessage(body: String, contentType: String, relayNode: RegisterResponse, signatures: Signatures) {
-        // @ToDo acá tienen que trabajar ustedes
+        val client = OkHttpClient()
+        val objectMapper = jacksonObjectMapper()
+        val requestBody = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("message",null, body.toRequestBody(contentType.toMediaType()))
+            .addFormDataPart("signatures", null, objectMapper.writeValueAsString(signatures).toRequestBody("application/json".toMediaType()))
+            .build()
+
+        println("Request: "+requestBody.parts + "\n" + requestBody.type)
+
+        val request = Request.Builder()
+            .url("http://${relayNode.nextHost}:${relayNode.nextPort}/relay")
+            .post(requestBody)
+            .build()
+
+        try {
+            // Enviar la solicitud y procesar la respuesta
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw IOException("Unexpected code $response")
+                val responseBody = response.body?.string()
+                println("Mensaje relay exitoso, respuesta: $responseBody")
+            }
+        } catch (e: Exception) {
+            println("Error en sendRelayMessage: ${e.message}")
+        }
     }
 
-    private fun clientSign(message: String, contentType: String): Signature {
+
+    private fun clientSign(message: String): Signature {
         val receivedHash = doHash(message.encodeToByteArray(), salt)
-        return Signature(myServerName, receivedHash, contentType, message.length)
+        val signatureHash = doHash((myServerName + receivedHash).toByteArray(), salt) // Hash de la firma (nombre del servidor + hash del mensaje) del nodo
+
+        return Signature(
+            name = myServerName,
+            hash = receivedHash,
+            contentType = signatureHash,
+            contentLength = message.length
+        )
     }
 
     private fun newResponse(body: String) = PlayResponse(

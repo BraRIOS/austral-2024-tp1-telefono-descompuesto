@@ -1,16 +1,6 @@
 package ar.edu.austral.inf.sd.server.model
 
-import java.util.Objects
 import com.fasterxml.jackson.annotation.JsonProperty
-import jakarta.validation.constraints.DecimalMax
-import jakarta.validation.constraints.DecimalMin
-import jakarta.validation.constraints.Email
-import jakarta.validation.constraints.Max
-import jakarta.validation.constraints.Min
-import jakarta.validation.constraints.NotNull
-import jakarta.validation.constraints.Pattern
-import jakarta.validation.constraints.Size
-import jakarta.validation.Valid
 
 /**
  * 
@@ -21,14 +11,11 @@ import jakarta.validation.Valid
  */
 data class Signature(
 
-    @get:JsonProperty("name", required = true) val name: kotlin.String,
+    @get:JsonProperty("name", required = true) val name: String,
 
-    @get:JsonProperty("hash", required = true) val hash: kotlin.String,
+    @get:JsonProperty("hash", required = true) val hash: String,
 
-    @get:JsonProperty("contentType") val contentType: kotlin.String? = null,
+    @get:JsonProperty("contentType") val contentType: String? = null,
 
-    @get:JsonProperty("contentLength") val contentLength: kotlin.Int? = null
-    ) {
-
-}
-
+    @get:JsonProperty("contentLength") val contentLength: Int? = null
+    )
