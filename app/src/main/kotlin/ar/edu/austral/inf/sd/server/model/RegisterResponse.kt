@@ -1,16 +1,6 @@
 package ar.edu.austral.inf.sd.server.model
 
-import java.util.Objects
 import com.fasterxml.jackson.annotation.JsonProperty
-import jakarta.validation.constraints.DecimalMax
-import jakarta.validation.constraints.DecimalMin
-import jakarta.validation.constraints.Email
-import jakarta.validation.constraints.Max
-import jakarta.validation.constraints.Min
-import jakarta.validation.constraints.NotNull
-import jakarta.validation.constraints.Pattern
-import jakarta.validation.constraints.Size
-import jakarta.validation.Valid
 
 /**
  * 
@@ -21,13 +11,15 @@ import jakarta.validation.Valid
  */
 data class RegisterResponse(
 
-    @get:JsonProperty("nextHost", required = true) val nextHost: kotlin.String,
+    @get:JsonProperty("name", required = true) val name: String,
 
-    @get:JsonProperty("nextPort", required = true) val nextPort: kotlin.Int,
+    @get:JsonProperty("nextHost", required = true) val nextHost: String,
 
-    @get:JsonProperty("uuid", required = true) val uuid: kotlin.String,
+    @get:JsonProperty("nextPort", required = true) val nextPort: Int,
 
-    @get:JsonProperty("hash", required = true) val hash: kotlin.String
+    @get:JsonProperty("uuid", required = true) val uuid: String,
+
+    @get:JsonProperty("hash", required = true) val hash: String
     ) {
 
 }
