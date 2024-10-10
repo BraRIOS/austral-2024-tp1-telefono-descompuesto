@@ -1,16 +1,19 @@
 package ar.edu.austral.inf.sd.server.api
 
+import ar.edu.austral.inf.sd.server.model.RegisterResponse
+import jakarta.servlet.http.HttpServletResponse
+import jakarta.validation.ConstraintViolationException
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.ControllerAdvice
 import org.springframework.web.bind.annotation.ExceptionHandler
-import jakarta.servlet.http.HttpServletResponse
-import jakarta.validation.ConstraintViolationException
 
 // TODO Extend ApiException for custom exception handling, e.g. the below NotFound exception
 sealed class ApiException(msg: String, val code: Int) : Exception(msg)
 
 class NotFoundException(msg: String, code: Int = HttpStatus.NOT_FOUND.value()) : ApiException(msg, code)
 class BadRequestException(msg: String) : ApiException(msg, HttpStatus.BAD_REQUEST.value())
+class UnauthorizedException(msg: String) : ApiException(msg, HttpStatus.UNAUTHORIZED.value())
+class AcceptedException(nextNode: RegisterResponse, msg: String) : ApiException(msg, HttpStatus.ACCEPTED.value())
 
 
 @ControllerAdvice

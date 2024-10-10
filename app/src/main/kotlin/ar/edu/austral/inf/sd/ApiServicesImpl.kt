@@ -1,15 +1,7 @@
 package ar.edu.austral.inf.sd
 
-import ar.edu.austral.inf.sd.server.api.PlayApiService
-import ar.edu.austral.inf.sd.server.api.RegisterNodeApiService
-import ar.edu.austral.inf.sd.server.api.RelayApiService
-import ar.edu.austral.inf.sd.server.api.BadRequestException
-import ar.edu.austral.inf.sd.server.api.ReconfigureApiService
-import ar.edu.austral.inf.sd.server.api.UnregisterNodeApiService
-import ar.edu.austral.inf.sd.server.model.PlayResponse
-import ar.edu.austral.inf.sd.server.model.RegisterResponse
-import ar.edu.austral.inf.sd.server.model.Signature
-import ar.edu.austral.inf.sd.server.model.Signatures
+import ar.edu.austral.inf.sd.server.api.*
+import ar.edu.austral.inf.sd.server.model.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
@@ -31,7 +23,7 @@ class ApiServicesImpl : RegisterNodeApiService, RelayApiService, PlayApiService,
 
     @Value("\${server.port:8080}")
     private val myServerPort: Int = 0
-    private val nodes: MutableList<RegisterResponse> = mutableListOf()
+    private val nodes: MutableList<RegisterRequest> = mutableListOf()
     private var nextNode: RegisterResponse? = null
     private val messageDigest = MessageDigest.getInstance("SHA-512")
     private val salt = Base64.getEncoder().encodeToString(Random.nextBytes(9))
@@ -40,22 +32,31 @@ class ApiServicesImpl : RegisterNodeApiService, RelayApiService, PlayApiService,
     private var resultReady = CountDownLatch(1)
     private var currentMessageWaiting = MutableStateFlow<PlayResponse?>(null)
     private var currentMessageResponse = MutableStateFlow<PlayResponse?>(null)
+    @Value("\${server.timeout:100}")
+    private val timeout: Int = 0
     private var xGameTimestamp: Int = 0
 
     override fun registerNode(host: String?, port: Int?, uuid: UUID?, salt: String?, name: String?): RegisterResponse {
-
         val nextNode = if (nodes.isEmpty()) {
             // es el primer nodo
-            val me = RegisterResponse(currentRequest.serverName, myServerPort, "", "")
+            val me = RegisterRequest(currentRequest.serverName, myServerPort, "maestro", null, "")
             nodes.add(me)
             me
         } else {
             nodes.last()
         }
-        val node = RegisterResponse(host!!, port!!, uuid, salt)
+        val node = RegisterRequest(host!!, port!!, name!!, uuid, salt)
+        xGameTimestamp++
+
+        if (nodes.contains(node)){
+            throw AcceptedException(RegisterResponse(nextNode.host, nextNode.port, timeout, xGameTimestamp), "Bienvenido de vuelta")
+        }
+        if (nodes.any { it.uuid == node.uuid && it.salt != node.salt }) {
+            throw UnauthorizedException("Estás tratando de estafarme... El UUID ya existe pero mandaste la clave incorrecta.")
+        }
         nodes.add(node)
 
-        return RegisterResponse(nextNode.nextHost, nextNode.nextPort, uuid, newSalt())
+        return RegisterResponse(nextNode.host, nextNode.port, timeout, xGameTimestamp)
     }
 
     override fun relayMessage(message: String, signatures: Signatures, xGameTimestamp: Int?): Signature {
